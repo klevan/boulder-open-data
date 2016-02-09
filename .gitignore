@@ -1,0 +1,4 @@
+data/*.csv
+ZWSID.txt
+*.Rhistory
+script.R
