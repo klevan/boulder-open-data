@@ -39,7 +39,7 @@ library(raster)
 library(sp)
 
 # Paths
-setwd("C:/Users/klevan/Desktop/my stuff/post1")
+setwd("~/GitHub/boulder-open-data")
 pathToData <- paste(getwd(),"data",sep="/")
 ```
 
