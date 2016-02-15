@@ -35,6 +35,7 @@ library(maps)
 library(mapproj)
 library(foreign)
 library(maptools)
+library(ggmap)
 library(raster)
 library(sp)
 
@@ -72,6 +73,8 @@ boulder.dbf %>% filter(is.na(price)==FALSE)-> boulder.dbf
 addressIDs <- addressIDs[addressIDs%in%boulder.dbf$ADDRESSID==FALSE]
 boulderList$price <- NA
 
+runscript <- FALSE # Don't run this until I specify
+if(runscript==TRUE){
 t <- addressIDs[1]
 for (j in addressIDs[1:2500]){ 
   tmp <- try(boulderList$price[boulderList$ADDRESSID==j] <- as.numeric(zestimate(boulderList$ADDRESS[j],
@@ -89,6 +92,7 @@ for (j in addressIDs[1:2500]){
 all <- boulderList[is.na(boulderList$price)==FALSE,]
 write.csv(all,file = paste(paste(pathToData,all$ADDRESSID[dim(all)[1]],sep='/'),'csv',sep="."),
               row.names = FALSE)
+}
 ```
 
 # Looking at pricing data
@@ -100,20 +104,28 @@ boulder.dbf <- multipleCombine(fileList, ply = ldply)
 boulder.dbf %>% filter(is.na(price)==FALSE)-> boulder.dbf
 boulder.dbf <- unique.data.frame(boulder.dbf[order(boulder.dbf$price),])
 
+# Bounding box
+bbox <- c(min(boulderList$LONGITUDE),min(boulderList$LATITUDE),
+          max(boulderList$LONGITUDE),max(boulderList$LATITUDE))
+boulder.map <- get_map(location = bbox,maptype="terrain")
+
 # Plotting the data
 mini <- min(boulder.dbf$price)
 maxi <- max(boulder.dbf$price)
 step <- (maxi-mini)/5
-t=1
+t=5
 
 plot(boulder.dbf$LONGITUDE,boulder.dbf$LATITUDE,
      xlab="Longitude",ylab="Latitude",col="white")
+
+
 for (i in seq(mini,maxi,step)){
   boulder.dbf %>% 
     filter(price<i, (i-step)<price) -> b
   points(b$LONGITUDE,b$LATITUDE,
          xlab="Longitude",ylab="Latitude",bg=heat.colors(5)[t],pch=21,
          cex=2)
-  t=t+1
+  t=t-1
 }
+```
 

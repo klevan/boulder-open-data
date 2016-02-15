@@ -1,4 +1,4 @@
-data/*.csv
+zillowData/*.csv
 ZWSID.txt
 *.Rhistory
 script.R
