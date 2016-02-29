@@ -14,13 +14,14 @@ I work in the Boulder, Colorado area. It is a beautiful locale and the community
 ```{r libraries functions & paths}
 rm(list = ls())
 
-# Function
+# Function to combine csv files
 options(stringsAsFactors = FALSE) 
 multipleCombine <- function(input, ply = llply){
   require(plyr)
   require(dplyr)
   ply(input, function(x){
-    t <- read.table(x, header=TRUE, sep=",",stringsAsFactors = FALSE)
+    t <- read.table(x, header = TRUE, sep = ",",
+                    stringsAsFactors = FALSE)
     t1 <- rbind(t) 
     return(t1)
   }
@@ -29,103 +30,177 @@ multipleCombine <- function(input, ply = llply){
 
 # Libraries
 library(Zillow)
-library(plyr)
-library(dplyr)
-library(maps)
-library(mapproj)
+library(ggmap)
+library(rgdal)
 library(foreign)
 library(maptools)
-library(ggmap)
-library(raster)
-library(sp)
+library(hexbin)
+library(broom)
 
 # Paths
 setwd("~/GitHub/boulder-open-data")
-pathToData <- paste(getwd(),"data",sep="/")
+pathToData <- paste(getwd(), "zillowData", sep = "/")
+
+# Color housekeeping
+library(RColorBrewer)
+rf <- colorRampPalette(rev(brewer.pal(11,'Spectral')))
+r <- rf(16)
 ```
 
 # Getting the data
 Data for this post come from two sources: the [Boulder Open Data Catalog](https://bouldercolorado.gov/open-data/boulder-addresses/) and the [Zillow API](http://www.zillow.com/howto/api/GetZestimate.htm). From the Boulder Catalog, I downloaded the .dbf and .shp files associated with all Boulder addresses. From Zillow, I used the Zillow API library in R, which makes it simple to use the API programatically; see `r install.package("Zillow")`. To use the API, you will need a zillow ID. Zillow uses this identifier to limit the number of calls you make to their servers. Boulder has ~50,000 addresses. To get price data associated with these addresses, I had to use a try block and do the procedure repeatedly. Zillow does have a mechanism to increase the number of queries you can make each day, but I was told that they don't lift that cap for data viz projects. 
 ```{r setting up for data,echo=TRUE}
-# To get Zillow data you need a zillow ID
-zillowId <- read.table(paste(getwd(),"ZWSID.txt",sep="/"), encoding="UTF8",
+# Boulder open data - dbf files
+address.dbf <- read.dbf(paste(getwd(), "cityData", "Boulder_addresses.dbf",sep = "/"))
+veg.dbf <- read.dbf(paste(getwd(), "cityData", "OSMP_Vegetation.dbf",sep = "/"))
+OSMP.dbf <- read.dbf(paste(getwd(), "cityData", "OSMPLands.dbf",sep = "/"))
+subcomm.dbf <- read.dbf(paste(getwd(), "cityData", "Subcomm.dbf",sep = "/")) 
+trees.dbf <- read.dbf(paste(getwd(), "cityData", "Trees_Public.dbf",sep = "/"))
+
+# Boulder open data - shp files
+address.shp <- readOGR(dsn = paste(getwd(), "cityData", sep = "/"), layer = "Boulder_addresses")
+veg.shp <- readOGR(dsn = paste(getwd(), "cityData", sep = "/"), layer = "OSMP_Vegetation")
+OSMP.shp <- readOGR(dsn = paste(getwd(), "cityData", sep = "/"), layer = "OSMPLands")
+subcomm.shp <- readOGR(dsn = paste(getwd(), "cityData", sep = "/"), layer = "Subcomm") 
+trees.shp <- readOGR(dsn = paste(getwd(), "cityData", sep = "/"), layer = "Trees_Public")
+
+# Change easting/northing to lat/lon
+latlong = "+init=epsg:4326"
+veg.shp <- spTransform(veg.shp,CRS(latlong))
+OSMP.shp <- spTransform(OSMP.shp,CRS(latlong))
+subcomm.shp <- spTransform(subcomm.shp,CRS(latlong))
+trees.shp <- spTransform(trees.shp,CRS(latlong))
+
+# Zillow property value data
+# Zillow ID (for the API)
+zillowId <- read.table(paste(getwd(),"ZWSID.txt", sep = "/"), encoding="UTF8",
                        row.names=NULL, quote="", comment.char="", stringsAsFactors=FALSE)[1,]
 
-# Boulder addresses
-boulderList <- read.dbf(paste(getwd(),"Boulder_addresses","Boulder_addresses.dbf",sep="/"))
-
-boulder.map <- readShapePoints(paste(getwd(),"Boulder_addresses","Boulder_addresses.shp",sep="/"))
-crs(boulder.map) <- "+proj=utm +units=m +ellps=WGS84"
+# Pricing data already acquired for these properties
+fileList <- list.files(pathToData, full.names = TRUE)
+zillow.dbf <- multipleCombine(fileList, ply = ldply)
+zillow.dbf %>% filter(is.na(price)==FALSE)-> zillow.dbf
 ```
 
 # Harvesting price data
 I've set up some try blocks that will periodically try to harvest housing market data on addresses for which I don't have information yet. In my experience, Zillow will let me do about 2500 calls to their API before they shut me down for a while.
-```{r try block to harvest price data}
+```{r try-block to harvest price data}
 # Do I already have some of this data?
-addressIDs <- sort(unique(boulderList$ADDRESSID))
-
-# Locations that I already have data from
-fileList <- list.files(pathToData, full.names=TRUE)
-boulder.dbf <- multipleCombine(fileList, ply = ldply)
-boulder.dbf %>% filter(is.na(price)==FALSE)-> boulder.dbf
+addressIDs <- sort(unique(address.dbf$ADDRESSID))
 
 # Remove locations I don't need to check
-addressIDs <- addressIDs[addressIDs%in%boulder.dbf$ADDRESSID==FALSE]
-boulderList$price <- NA
+addressIDs <- addressIDs[addressIDs%in%zillow.dbf$ADDRESSID==FALSE]
+address.dbf$price <- NA
 
 runscript <- FALSE # Don't run this until I specify
 if(runscript==TRUE){
 t <- addressIDs[1]
 for (j in addressIDs[1:2500]){ 
-  tmp <- try(boulderList$price[boulderList$ADDRESSID==j] <- as.numeric(zestimate(boulderList$ADDRESS[j],
-                                                                                 boulderList$ZIPCODE[j],zillowId)$amount))
+  tmp <- try(address.dbf$price[address.dbf$ADDRESSID==j] <- as.numeric(zestimate(address.dbf$ADDRESS[j],
+                                                                                 address.dbf$ZIPCODE[j],
+                                                                                 zillowId)$amount))
   if (class(tmp)=="try-error"){
-    boulderList$price[boulderList$ADDRESSID==j] <- NA
+    address.dbf$price[address.dbf$ADDRESSID==j] <- NA
     j <- addressIDs[match(j,addressIDs)+1]
   }
   if(match(j, addressIDs)%%1000==0){
-    write.csv(boulderList[addressIDs[t:j],],file = paste(paste(pathToData,j,sep='/'),'csv',sep="."),
+    write.csv(address.dbf[addressIDs[t:j], ], file = paste(paste(pathToData,j,sep = "/"), 'csv', sep = "."),
               row.names = FALSE)
-    t <- addressIDs[match(j,addressIDs)+1]
+    t <- addressIDs[match(j, addressIDs)+1]
   }
 }
-all <- boulderList[is.na(boulderList$price)==FALSE,]
-write.csv(all,file = paste(paste(pathToData,all$ADDRESSID[dim(all)[1]],sep='/'),'csv',sep="."),
+all <- address.dbf[is.na(address.dbf$price)==FALSE, ]
+write.csv(all,file = paste(paste(pathToData, all$ADDRESSID[dim(all)[1]], sep = "/"), 'csv', sep = "."),
               row.names = FALSE)
 }
 ```
 
 # Looking at pricing data
-Certain neighborhoods are pricier than others. The warmer the heat colors, the more expensive the area.
+Certain neighborhoods are pricier than others. The most expensive quintile is plotted in green, the least expensive quintile is plotted in red.
 ```{r visualizing the data, echo=TRUE}
+# Mapping housing prices
 # Collate all the data files
-fileList <- list.files(pathToData, full.names=TRUE)
-boulder.dbf <- multipleCombine(fileList, ply = ldply)
-boulder.dbf %>% filter(is.na(price)==FALSE)-> boulder.dbf
-boulder.dbf <- unique.data.frame(boulder.dbf[order(boulder.dbf$price),])
+fileList <- list.files(pathToData, full.names = TRUE)
+zillow.dbf <- multipleCombine(fileList, ply = ldply)
+zillow.dbf %>% filter(is.na(price)==FALSE) -> zillow.dbf
+zillow.dbf <- unique.data.frame(zillow.dbf[order(zillow.dbf$price), ])
 
-# Bounding box
-bbox <- c(min(boulderList$LONGITUDE),min(boulderList$LATITUDE),
-          max(boulderList$LONGITUDE),max(boulderList$LATITUDE))
-boulder.map <- get_map(location = bbox,maptype="terrain")
-
-# Plotting the data
-mini <- min(boulder.dbf$price)
-maxi <- max(boulder.dbf$price)
-step <- (maxi-mini)/5
-t=5
-
-plot(boulder.dbf$LONGITUDE,boulder.dbf$LATITUDE,
-     xlab="Longitude",ylab="Latitude",col="white")
-
-
-for (i in seq(mini,maxi,step)){
-  boulder.dbf %>% 
-    filter(price<i, (i-step)<price) -> b
-  points(b$LONGITUDE,b$LATITUDE,
-         xlab="Longitude",ylab="Latitude",bg=heat.colors(5)[t],pch=21,
-         cex=2)
-  t=t-1
+# Create price bins 
+bins <- c(seq(0, 1000000, 250000), max(zillow.dbf$price)+1)
+for (i in bins[2:6]){
+  zillow.dbf$quintile[zillow.dbf$price < i & zillow.dbf$price >= bins[match(i, bins) - 1]] <- (match(i, bins) - 1)
 }
+
+# Set parameters
+bbox <- c(min(address.dbf$LONGITUDE),min(address.dbf$LATITUDE),
+          max(address.dbf$LONGITUDE)+0.07,max(address.dbf$LATITUDE)-0.05)
+boulder.map <- get_map(location = bbox, maptype = "terrain")
+
+ggmap(boulder.map, extent = "normal", darken = 0.1) + 
+    geom_density2d(data = zillow.dbf[zillow.dbf$quintile==1,], aes(x = LONGITUDE, y = LATITUDE), color = "red") +
+  geom_density2d(data = zillow.dbf[zillow.dbf$quintile==5,], aes(x = LONGITUDE, y = LATITUDE), color = "darkgreen") +
+  ylab("Latitude") +
+  xlab("Longitude") +
+  ggtitle("Home prices") +
+  theme(panel.grid.minor=element_blank(),
+           panel.grid.major=element_blank()) +
+  theme_bw()
 ```
 
+# Mapping the community
+How is the price of housing related to the proximity of open space or green space? First, I wanted to get a sense visually of the open space within Boulder.
+```{r community mapping}
+# Set parameters
+bbox <- c(min(address.dbf$LONGITUDE),min(address.dbf$LATITUDE),
+          max(address.dbf$LONGITUDE)+0.07,max(address.dbf$LATITUDE)-0.05)
+boulder.map <- get_map(location = bbox, maptype = "terrain")
+
+# What are the tree communities like?
+a <- colnames(trees.dbf)
+trees.dbf <- cbind(trees.dbf, trees.shp@coords)
+colnames(trees.dbf) <- c(a, "Longitude", "Latitude")
+
+# Open Space and Mountain Parks
+OSMP.shp@data$id <- rownames(OSMP.dbf)
+OSMP.points <- fortify(OSMP.shp, region = "id")
+OSMP.df <- join(OSMP.points, OSMP.shp@data, by = "id")
+OSMP.df %>% 
+  filter(lat > bbox[2], lat < bbox[4],
+         long > bbox[1], long < bbox[3]) -> OSMP.df
+
+ggmap(boulder.map, extent = "normal", darken = 0.2) + 
+  geom_polygon(data = OSMP.df, aes(x = long, y = lat,group=group), 
+               fill = "brown", alpha = 0.4) +
+  geom_density2d(data = trees.dbf, aes(x = Longitude, y = Latitude), 
+                 color = "darkgreen") +
+  ylab("Latitude") +
+  xlab("Longitude") +
+  ggtitle("Tree Density within the City Limits") +
+  theme(panel.grid.minor=element_blank(),
+           panel.grid.major=element_blank()) +
+  theme_bw()
+
+
+ggplot(OSMP.df)+
+  aes(long,lat,group=group)+
+  geom_polygon(fill="yellow")
+
+```
+
+```{r other, echo=FALSE}
+#spp <- unique.data.frame(trees.dbf[c("SPP", "Longitude", "Latitude")])
+
+# h <- hexbin(spp[c("Longitude", "Latitude")], xbins = 200)
+# plot(h, xlab = "Longitude", ylab = "Latitude", colramp = rf,main = "Number of tree species per hex")
+# h1 <- hexbin(trees.dbf[c("Longitude","Latitude")])
+# plot(h, xlab = "Longitude", ylab = "Latitude", colramp = rf,main ="Number of trees per hex")
+# 
+# price <- hexbin(zillow.dbf[c("LONGITUDE","LATITUDE")],xbins = 200,IDs = TRUE)
+# zillow.dbf$cellName <- price@cID
+# for (i in sort(unique(zillow.dbf$cellName))){
+#   zillow.dbf %>% 
+#     filter(cellName==i) -> x
+#   zillow.dbf$meanCellPrice[zillow.dbf$cellName==i] <- mean(x$price)
+#   zillow.dbf$medianCellPrice[zillow.dbf$cellName==i] <- median(x$price)
+# }
+```
