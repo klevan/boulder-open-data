@@ -1,17 +1,6 @@
----
-layout: post
-title: "The Affordability of Open Space"
-excerpt: "Can you buy a house with decent access to the Flatirons?"
-tags: [market, Zillow, real estate, housing]
-comments: true
-image:
-  feature: flatirons.jpg
-  credit: Zach Ancell
-  creditlink: https://www.flickr.com/photos/zachancell/3682237473
----
 # Boulder & Open Space Access
 I work in the Boulder, Colorado area. It is a beautiful locale and the community as a whole really values its open space. The fact that my co-workers joke about the cost-of-living penalty of living close the flatiron mountains highlights just how desirable access to the outdoors is for this area. Because Boulder participates in the [Open Data movement](https://bouldercolorado.gov/open-data), I decided to look into this phenomenon a little more closely. 
-```{r libraries functions & paths}
+```{r libraries functions & paths, echo=FALSE}
 rm(list = ls())
 
 # Function to combine csv files
@@ -49,7 +38,7 @@ r <- rf(16)
 
 # Getting the data
 Data for this post come from two sources: the [Boulder Open Data Catalog](https://bouldercolorado.gov/open-data/boulder-addresses/) and the [Zillow API](http://www.zillow.com/howto/api/GetZestimate.htm). From the Boulder Catalog, I downloaded the .dbf and .shp files associated with all Boulder addresses. From Zillow, I used the Zillow API library in R, which makes it simple to use the API programatically; see `r install.package("Zillow")`. To use the API, you will need a zillow ID. Zillow uses this identifier to limit the number of calls you make to their servers. Boulder has ~50,000 addresses. To get price data associated with these addresses, I had to use a try block and do the procedure repeatedly. Zillow does have a mechanism to increase the number of queries you can make each day, but I was told that they don't lift that cap for data viz projects. 
-```{r setting up for data,echo=TRUE}
+```{r setting up for data, echo=FALSE}
 # Boulder open data - dbf files
 address.dbf <- read.dbf(paste(getwd(), "cityData", "Boulder_addresses.dbf",sep = "/"))
 veg.dbf <- read.dbf(paste(getwd(), "cityData", "OSMP_Vegetation.dbf",sep = "/"))
@@ -84,7 +73,7 @@ zillow.dbf %>% filter(is.na(price)==FALSE)-> zillow.dbf
 
 # Harvesting price data
 I've set up some try blocks that will periodically try to harvest housing market data on addresses for which I don't have information yet. In my experience, Zillow will let me do about 2500 calls to their API before they shut me down for a while.
-```{r try-block to harvest price data}
+```{r try-block to harvest price data, echo=FALSE}
 # Do I already have some of this data?
 addressIDs <- sort(unique(address.dbf$ADDRESSID))
 
@@ -103,11 +92,6 @@ for (j in addressIDs[1:2500]){
     address.dbf$price[address.dbf$ADDRESSID==j] <- NA
     j <- addressIDs[match(j,addressIDs)+1]
   }
-  if(match(j, addressIDs)%%1000==0){
-    write.csv(address.dbf[addressIDs[t:j], ], file = paste(paste(pathToData,j,sep = "/"), 'csv', sep = "."),
-              row.names = FALSE)
-    t <- addressIDs[match(j, addressIDs)+1]
-  }
 }
 all <- address.dbf[is.na(address.dbf$price)==FALSE, ]
 write.csv(all,file = paste(paste(pathToData, all$ADDRESSID[dim(all)[1]], sep = "/"), 'csv', sep = "."),
@@ -116,8 +100,8 @@ write.csv(all,file = paste(paste(pathToData, all$ADDRESSID[dim(all)[1]], sep = "
 ```
 
 # Looking at pricing data
-Certain neighborhoods are pricier than others. The most expensive quintile is plotted in green, the least expensive quintile is plotted in red.
-```{r visualizing the data, echo=TRUE}
+Certain neighborhoods are pricier than others. The most expensive quintile is plotted in green contours, the least expensive quintile is plotted in red. Interpreting contour lines is pretty straightforward and similar to interpreting contours on a topographic map. On a topo map, contour lines that are close together indicate a steep change in elevation whereas lines spaced further apart represent less elevation gain  or even completely flat sections. In this context, "steep" areas represent a high concentration of points, whereas areas with lines that are spaced further apart represent areas with few points. 
+```{r visualizing the data, echo=FALSE}
 # Mapping housing prices
 # Collate all the data files
 fileList <- list.files(pathToData, full.names = TRUE)
@@ -146,13 +130,16 @@ ggmap(boulder.map, extent = "normal", darken = 0.1) +
            panel.grid.major=element_blank()) +
   theme_bw()
 ```
+From this plot, the "steep" areas of the green contours are in the Pearl Street/Mapleton Hill neighborhoods and the South Table Mesa neighborhood; so those are statistically where the greatest concentration of houses over a million dollars are located. Likewise, the "steep" areas of the red contours are concentrated in Gunbarrel and around Valmont Rd in Northeast Boulder. That's where you are most likely to find a property valued at less that a quarter million dollars.
 
 # Mapping the community
 How is the price of housing related to the proximity of open space or green space? First, I wanted to get a sense visually of the open space within Boulder.
-```{r community mapping}
+The contour map (in green) tells you where most of the trees are located. Again, it seems as though lot of the trees (at least those tracked and managed by the city) are in the Mapleton Hill neighborhood, a historic and very expensive area.
+Green space isn't just tree-lined streets, though. So I mapped out the open space parcels owned by the City of Boulder in brown.
+```{r community mapping, echo=FALSE}
 # Set parameters
 bbox <- c(min(address.dbf$LONGITUDE),min(address.dbf$LATITUDE),
-          max(address.dbf$LONGITUDE)+0.07,max(address.dbf$LATITUDE)-0.05)
+          max(address.dbf$LONGITUDE)+.1,max(address.dbf$LATITUDE))
 boulder.map <- get_map(location = bbox, maptype = "terrain")
 
 # What are the tree communities like?
@@ -179,28 +166,42 @@ ggmap(boulder.map, extent = "normal", darken = 0.2) +
   theme(panel.grid.minor=element_blank(),
            panel.grid.major=element_blank()) +
   theme_bw()
-
-
-ggplot(OSMP.df)+
-  aes(long,lat,group=group)+
-  geom_polygon(fill="yellow")
-
 ```
+Not all of the space owned and controlled by OSMP is accessible to the public. While I certainly appreciate being able to look at a pristine vista, the real pleasure is in exploring it. 
+```{r community mapping 2, echo=FALSE}
+# Set parameters
+bbox <- c(min(address.dbf$LONGITUDE),min(address.dbf$LATITUDE),
+          max(address.dbf$LONGITUDE)+.1,max(address.dbf$LATITUDE))
+boulder.map <- get_map(location = bbox, maptype = "terrain")
 
-```{r other, echo=FALSE}
-#spp <- unique.data.frame(trees.dbf[c("SPP", "Longitude", "Latitude")])
+# What are the tree communities like?
+a <- colnames(trees.dbf)
+trees.dbf <- cbind(trees.dbf, trees.shp@coords)
+colnames(trees.dbf) <- c(a, "Longitude", "Latitude")
 
-# h <- hexbin(spp[c("Longitude", "Latitude")], xbins = 200)
-# plot(h, xlab = "Longitude", ylab = "Latitude", colramp = rf,main = "Number of tree species per hex")
-# h1 <- hexbin(trees.dbf[c("Longitude","Latitude")])
-# plot(h, xlab = "Longitude", ylab = "Latitude", colramp = rf,main ="Number of trees per hex")
-# 
-# price <- hexbin(zillow.dbf[c("LONGITUDE","LATITUDE")],xbins = 200,IDs = TRUE)
-# zillow.dbf$cellName <- price@cID
-# for (i in sort(unique(zillow.dbf$cellName))){
-#   zillow.dbf %>% 
-#     filter(cellName==i) -> x
-#   zillow.dbf$meanCellPrice[zillow.dbf$cellName==i] <- mean(x$price)
-#   zillow.dbf$medianCellPrice[zillow.dbf$cellName==i] <- median(x$price)
-# }
+# Open Space and Mountain Parks
+OSMP.shp@data$id <- rownames(OSMP.dbf)
+OSMP.points <- fortify(OSMP.shp, region = "id")
+OSMP.df <- join(OSMP.points, OSMP.shp@data, by = "id")
+OSMP.df %>% 
+  filter(lat > bbox[2], lat < bbox[4],
+         long > bbox[1], long < bbox[3],PUBLICACCE=="y") -> OSMP.df.y
+OSMP.df %>% 
+  filter(lat > bbox[2], lat < bbox[4],
+         long > bbox[1], long < bbox[3],PUBLICACCE!="y") -> OSMP.df.n
+
+ggmap(boulder.map, extent = "normal", darken = 0.2) + 
+  geom_polygon(data = OSMP.df.y, aes(x = long, y = lat,group=group), 
+               fill = "brown", alpha = 0.4) +
+  geom_polygon(data = OSMP.df.n, aes(x = long, y = lat,group=group), 
+               fill = "black") +
+  geom_density2d(data = trees.dbf, aes(x = Longitude, y = Latitude), 
+                 color = "darkgreen") +
+  ylab("Latitude") +
+  xlab("Longitude") +
+  ggtitle("Tree Density within the City Limits") +
+  theme(panel.grid.minor=element_blank(),
+           panel.grid.major=element_blank()) +
+  theme_bw()
+
 ```
