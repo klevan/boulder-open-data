@@ -1,6 +1,6 @@
 # Boulder & Open Space Access
 I work in the Boulder, Colorado area. It is a beautiful locale and the community as a whole really values its open space. The fact that my co-workers joke about the cost-of-living penalty of living close the flatiron mountains highlights just how desirable access to the outdoors is for this area. Because Boulder participates in the [Open Data movement](https://bouldercolorado.gov/open-data), I decided to look into this phenomenon a little more closely. 
-```{r libraries functions & paths, echo=FALSE}
+```{r libraries functions & paths, echo=FALSE, warning=FALSE, message=FALSE}
 rm(list = ls())
 
 # Function to combine csv files
@@ -19,12 +19,12 @@ multipleCombine <- function(input, ply = llply){
 
 # Libraries
 library(Zillow)
-library(ggmap)
-library(rgdal)
-library(foreign)
-library(maptools)
-library(hexbin)
-library(broom)
+library(ggmap, quietly = TRUE)
+library(rgdal, quietly = TRUE)
+library(foreign, quietly = TRUE)
+library(maptools, quietly = TRUE)
+library(hexbin, quietly = TRUE)
+library(broom, quietly = TRUE)
 
 # Paths
 setwd("~/GitHub/boulder-open-data")
