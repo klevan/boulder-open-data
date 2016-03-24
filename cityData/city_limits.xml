@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6" generator="CGImap 0.4.0 (30419 thorn-03.openstreetmap.org)" copyright="OpenStreetMap and contributors" attribution="http://www.openstreetmap.org/copyright" license="http://opendatacommons.org/licenses/odbl/1-0/">
+ <relation id="112298" visible="true" version="15" changeset="32295392" timestamp="2015-06-29T21:38:55Z" user="geow" uid="223093">
+  <member type="way" ref="224554652" role="outer"/>
+  <member type="way" ref="224554650" role="outer"/>
+  <member type="way" ref="224554651" role="outer"/>
+  <member type="way" ref="197292026" role="outer"/>
+  <member type="way" ref="224551544" role="outer"/>
+  <member type="way" ref="197292028" role="inner"/>
+  <member type="way" ref="197292050" role="inner"/>
+  <member type="way" ref="197292030" role="inner"/>
+  <member type="way" ref="197292035" role="inner"/>
+  <member type="way" ref="197292047" role="inner"/>
+  <member type="way" ref="197292055" role="inner"/>
+  <member type="way" ref="197292031" role="inner"/>
+  <member type="way" ref="197292039" role="inner"/>
+  <member type="way" ref="197292072" role="inner"/>
+  <member type="way" ref="197292064" role="inner"/>
+  <member type="way" ref="197292075" role="inner"/>
+  <member type="way" ref="197292056" role="inner"/>
+  <member type="way" ref="197292053" role="inner"/>
+  <member type="way" ref="197292048" role="inner"/>
+  <member type="way" ref="197292040" role="inner"/>
+  <member type="way" ref="197292052" role="inner"/>
+  <member type="way" ref="197292065" role="inner"/>
+  <member type="way" ref="197292059" role="inner"/>
+  <member type="way" ref="197292071" role="inner"/>
+  <member type="way" ref="197292034" role="inner"/>
+  <member type="way" ref="197292057" role="inner"/>
+  <member type="way" ref="197292069" role="inner"/>
+  <member type="way" ref="197292037" role="inner"/>
+  <member type="way" ref="197292045" role="inner"/>
+  <member type="way" ref="197292051" role="inner"/>
+  <member type="way" ref="197292049" role="inner"/>
+  <member type="way" ref="197292066" role="inner"/>
+  <member type="way" ref="197292076" role="inner"/>
+  <member type="way" ref="197292046" role="inner"/>
+  <member type="way" ref="197292054" role="inner"/>
+  <member type="way" ref="197292058" role="inner"/>
+  <member type="way" ref="197292073" role="inner"/>
+  <member type="way" ref="197292041" role="inner"/>
+  <member type="way" ref="197292042" role="inner"/>
+  <member type="way" ref="197292029" role="inner"/>
+  <member type="way" ref="197292043" role="inner"/>
+  <member type="way" ref="197292038" role="inner"/>
+  <member type="way" ref="197292074" role="inner"/>
+  <member type="way" ref="197292060" role="inner"/>
+  <member type="way" ref="197292032" role="inner"/>
+  <member type="way" ref="197292033" role="outer"/>
+  <member type="way" ref="197292027" role="outer"/>
+  <member type="way" ref="224551545" role="outer"/>
+  <member type="way" ref="224554608" role="outer"/>
+  <member type="way" ref="224554607" role="outer"/>
+  <member type="way" ref="197292061" role="outer"/>
+  <member type="way" ref="197292044" role="outer"/>
+  <member type="way" ref="197292067" role="outer"/>
+  <member type="way" ref="197292070" role="inner"/>
+  <tag k="admin_level" v="8"/>
+  <tag k="boundary" v="administrative"/>
+  <tag k="is_in" v="Colorado;CO;USA"/>
+  <tag k="land_area" v="administrative"/>
+  <tag k="name" v="Boulder"/>
+  <tag k="place" v="city"/>
+  <tag k="source" v="City of Boulder   https://bouldercolorado.gov/open-data"/>
+  <tag k="type" v="boundary"/>
+  <tag k="wikipedia" v="en:Boulder, Colorado"/>
+ </relation>
+</osm>

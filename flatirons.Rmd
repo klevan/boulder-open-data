@@ -18,13 +18,15 @@ multipleCombine <- function(input, ply = llply){
 }
 
 # Libraries
-library(Zillow)
+library(Zillow, quietly = TRUE)
 library(ggmap, quietly = TRUE)
 library(rgdal, quietly = TRUE)
 library(foreign, quietly = TRUE)
 library(maptools, quietly = TRUE)
 library(hexbin, quietly = TRUE)
 library(broom, quietly = TRUE)
+library(rgeos, quietly = TRUE)
+library(sp, quietly = TRUE)
 
 # Paths
 setwd("~/GitHub/boulder-open-data")
@@ -39,19 +41,13 @@ r <- rf(16)
 # Getting the data
 Data for this post come from two sources: the [Boulder Open Data Catalog](https://bouldercolorado.gov/open-data/boulder-addresses/) and the [Zillow API](http://www.zillow.com/howto/api/GetZestimate.htm). From the Boulder Catalog, I downloaded the .dbf and .shp files associated with all Boulder addresses. From Zillow, I used the Zillow API library in R, which makes it simple to use the API programatically; see `r install.package("Zillow")`. To use the API, you will need a zillow ID. Zillow uses this identifier to limit the number of calls you make to their servers. Boulder has ~50,000 addresses. To get price data associated with these addresses, I had to use a try block and do the procedure repeatedly. Zillow does have a mechanism to increase the number of queries you can make each day, but I was told that they don't lift that cap for data viz projects. 
 ```{r setting up for data, echo=FALSE}
-# Boulder open data - dbf files
-address.dbf <- read.dbf(paste(getwd(), "cityData", "Boulder_addresses.dbf",sep = "/"))
-veg.dbf <- read.dbf(paste(getwd(), "cityData", "OSMP_Vegetation.dbf",sep = "/"))
-OSMP.dbf <- read.dbf(paste(getwd(), "cityData", "OSMPLands.dbf",sep = "/"))
-subcomm.dbf <- read.dbf(paste(getwd(), "cityData", "Subcomm.dbf",sep = "/")) 
-trees.dbf <- read.dbf(paste(getwd(), "cityData", "Trees_Public.dbf",sep = "/"))
-
 # Boulder open data - shp files
 address.shp <- readOGR(dsn = paste(getwd(), "cityData", sep = "/"), layer = "Boulder_addresses")
 veg.shp <- readOGR(dsn = paste(getwd(), "cityData", sep = "/"), layer = "OSMP_Vegetation")
 OSMP.shp <- readOGR(dsn = paste(getwd(), "cityData", sep = "/"), layer = "OSMPLands")
 subcomm.shp <- readOGR(dsn = paste(getwd(), "cityData", sep = "/"), layer = "Subcomm") 
 trees.shp <- readOGR(dsn = paste(getwd(), "cityData", sep = "/"), layer = "Trees_Public")
+trails.shp <- readOGR(dsn = paste(getwd(), "cityData", sep = "/"), layer = "Trails")
 
 # Change easting/northing to lat/lon
 latlong = "+init=epsg:4326"
@@ -59,21 +55,33 @@ veg.shp <- spTransform(veg.shp,CRS(latlong))
 OSMP.shp <- spTransform(OSMP.shp,CRS(latlong))
 subcomm.shp <- spTransform(subcomm.shp,CRS(latlong))
 trees.shp <- spTransform(trees.shp,CRS(latlong))
+address.shp <- spTransform(address.shp,CRS(latlong))
+trails.shp <- spTransform(trails.shp,CRS(latlong))
+
+# Pricing data already acquired for these properties
+fileList <- list.files(pathToData, full.names = TRUE)
+zillow.dbf <- multipleCombine(fileList, ply = ldply)
+zillow.dbf %>% filter(is.na(price)==FALSE)-> zillow.dbf
+
+# Add it to the address.shp data
+address.shp@data$price <- NA
+for (i in sort(unique(zillow.dbf$ADDRESSID))){
+  address.shp@data$price[address.shp@data$ADDRESSID==i] <- zillow.dbf$price[zillow.dbf$ADDRESSID==i]  
+}
+rm(zillow.dbf)
+```
+
+# Harvesting price data
+I've set up some try blocks that will periodically try to harvest housing market data on addresses for which I don't have information yet. In my experience, Zillow will let me do about 2500 calls to their API before they shut me down for a while.
+```{r try-block to harvest price data, echo=FALSE}
+runscript <- FALSE # Don't run this until I specify
+if(runscript==TRUE){
 
 # Zillow property value data
 # Zillow ID (for the API)
 zillowId <- read.table(paste(getwd(),"ZWSID.txt", sep = "/"), encoding="UTF8",
                        row.names=NULL, quote="", comment.char="", stringsAsFactors=FALSE)[1,]
 
-# Pricing data already acquired for these properties
-fileList <- list.files(pathToData, full.names = TRUE)
-zillow.dbf <- multipleCombine(fileList, ply = ldply)
-zillow.dbf %>% filter(is.na(price)==FALSE)-> zillow.dbf
-```
-
-# Harvesting price data
-I've set up some try blocks that will periodically try to harvest housing market data on addresses for which I don't have information yet. In my experience, Zillow will let me do about 2500 calls to their API before they shut me down for a while.
-```{r try-block to harvest price data, echo=FALSE}
 # Do I already have some of this data?
 addressIDs <- sort(unique(address.dbf$ADDRESSID))
 
@@ -81,8 +89,6 @@ addressIDs <- sort(unique(address.dbf$ADDRESSID))
 addressIDs <- addressIDs[addressIDs%in%zillow.dbf$ADDRESSID==FALSE]
 address.dbf$price <- NA
 
-runscript <- FALSE # Don't run this until I specify
-if(runscript==TRUE){
 t <- addressIDs[1]
 for (j in addressIDs[1:2500]){ 
   tmp <- try(address.dbf$price[address.dbf$ADDRESSID==j] <- as.numeric(zestimate(address.dbf$ADDRESS[j],
@@ -102,27 +108,17 @@ write.csv(all,file = paste(paste(pathToData, all$ADDRESSID[dim(all)[1]], sep = "
 # Looking at pricing data
 Certain neighborhoods are pricier than others. The most expensive quintile is plotted in green contours, the least expensive quintile is plotted in red. Interpreting contour lines is pretty straightforward and similar to interpreting contours on a topographic map. On a topo map, contour lines that are close together indicate a steep change in elevation whereas lines spaced further apart represent less elevation gain  or even completely flat sections. In this context, "steep" areas represent a high concentration of points, whereas areas with lines that are spaced further apart represent areas with few points. 
 ```{r visualizing the data, echo=FALSE}
-# Mapping housing prices
-# Collate all the data files
-fileList <- list.files(pathToData, full.names = TRUE)
-zillow.dbf <- multipleCombine(fileList, ply = ldply)
-zillow.dbf %>% filter(is.na(price)==FALSE) -> zillow.dbf
-zillow.dbf <- unique.data.frame(zillow.dbf[order(zillow.dbf$price), ])
-
-# Create price bins 
-bins <- c(seq(0, 1000000, 250000), max(zillow.dbf$price)+1)
-for (i in bins[2:6]){
-  zillow.dbf$quintile[zillow.dbf$price < i & zillow.dbf$price >= bins[match(i, bins) - 1]] <- (match(i, bins) - 1)
-}
-
 # Set parameters
-bbox <- c(min(address.dbf$LONGITUDE),min(address.dbf$LATITUDE),
-          max(address.dbf$LONGITUDE)+0.07,max(address.dbf$LATITUDE)-0.05)
+bbox <- c(min(address.shp@data$LONGITUDE),
+          min(address.shp@data$LATITUDE),
+          max(address.shp@data$LONGITUDE)+.1,
+          max(address.shp@data$LATITUDE))
 boulder.map <- get_map(location = bbox, maptype = "terrain")
 
-ggmap(boulder.map, extent = "normal", darken = 0.1) + 
-    geom_density2d(data = zillow.dbf[zillow.dbf$quintile==1,], aes(x = LONGITUDE, y = LATITUDE), color = "red") +
-  geom_density2d(data = zillow.dbf[zillow.dbf$quintile==5,], aes(x = LONGITUDE, y = LATITUDE), color = "darkgreen") +
+# Mapping housing prices
+ggmap(boulder.map, extent = "normal", darken = 0.2) + 
+  geom_point(data = address.shp@data[address.shp@data$price<5000000, ], aes(x = LONGITUDE, y = LATITUDE, size = price, color = price), alpha = 0.6, show.legend = FALSE) +
+  scale_color_gradient(low = "firebrick", high = "darkgreen") +
   ylab("Latitude") +
   xlab("Longitude") +
   ggtitle("Home prices") +
@@ -137,29 +133,26 @@ How is the price of housing related to the proximity of open space or green spac
 The contour map (in green) tells you where most of the trees are located. Again, it seems as though lot of the trees (at least those tracked and managed by the city) are in the Mapleton Hill neighborhood, a historic and very expensive area.
 Green space isn't just tree-lined streets, though. So I mapped out the open space parcels owned by the City of Boulder in brown.
 ```{r community mapping, echo=FALSE}
-# Set parameters
-bbox <- c(min(address.dbf$LONGITUDE),min(address.dbf$LATITUDE),
-          max(address.dbf$LONGITUDE)+.1,max(address.dbf$LATITUDE))
-boulder.map <- get_map(location = bbox, maptype = "terrain")
-
 # What are the tree communities like?
-a <- colnames(trees.dbf)
-trees.dbf <- cbind(trees.dbf, trees.shp@coords)
-colnames(trees.dbf) <- c(a, "Longitude", "Latitude")
+a <- colnames(trees.shp@data)
+trees.shp@data <- cbind(trees.shp@data, trees.shp@coords)
+colnames(trees.shp@data) <- c(a, "Longitude", "Latitude")
+rm(a)
 
 # Open Space and Mountain Parks
-OSMP.shp@data$id <- rownames(OSMP.dbf)
+OSMP.shp@data$id <- rownames(OSMP.shp@data)
 OSMP.points <- fortify(OSMP.shp, region = "id")
 OSMP.df <- join(OSMP.points, OSMP.shp@data, by = "id")
 OSMP.df %>% 
   filter(lat > bbox[2], lat < bbox[4],
          long > bbox[1], long < bbox[3]) -> OSMP.df
+rm(OSMP.points)
 
 ggmap(boulder.map, extent = "normal", darken = 0.2) + 
   geom_polygon(data = OSMP.df, aes(x = long, y = lat,group=group), 
                fill = "brown", alpha = 0.4) +
-  geom_density2d(data = trees.dbf, aes(x = Longitude, y = Latitude), 
-                 color = "darkgreen") +
+  geom_point(data = trees.shp@data, aes(x = Longitude, y = Latitude), 
+                 color = "forestgreen", alpha = 0.04) +
   ylab("Latitude") +
   xlab("Longitude") +
   ggtitle("Tree Density within the City Limits") +
@@ -168,40 +161,137 @@ ggmap(boulder.map, extent = "normal", darken = 0.2) +
   theme_bw()
 ```
 Not all of the space owned and controlled by OSMP is accessible to the public. While I certainly appreciate being able to look at a pristine vista, the real pleasure is in exploring it. 
-```{r community mapping 2, echo=FALSE}
-# Set parameters
-bbox <- c(min(address.dbf$LONGITUDE),min(address.dbf$LATITUDE),
-          max(address.dbf$LONGITUDE)+.1,max(address.dbf$LATITUDE))
-boulder.map <- get_map(location = bbox, maptype = "terrain")
-
-# What are the tree communities like?
-a <- colnames(trees.dbf)
-trees.dbf <- cbind(trees.dbf, trees.shp@coords)
-colnames(trees.dbf) <- c(a, "Longitude", "Latitude")
-
+```{r accessible areas, echo=FALSE}
 # Open Space and Mountain Parks
-OSMP.shp@data$id <- rownames(OSMP.dbf)
-OSMP.points <- fortify(OSMP.shp, region = "id")
-OSMP.df <- join(OSMP.points, OSMP.shp@data, by = "id")
-OSMP.df %>% 
-  filter(lat > bbox[2], lat < bbox[4],
-         long > bbox[1], long < bbox[3],PUBLICACCE=="y") -> OSMP.df.y
-OSMP.df %>% 
-  filter(lat > bbox[2], lat < bbox[4],
-         long > bbox[1], long < bbox[3],PUBLICACCE!="y") -> OSMP.df.n
+trails.shp@data$id <- rownames(trails.shp@data)
+trails.points <- fortify(trails.shp, region = "id")
+trails.df <- join(trails.points, trails.shp@data, by = "id")
 
 ggmap(boulder.map, extent = "normal", darken = 0.2) + 
-  geom_polygon(data = OSMP.df.y, aes(x = long, y = lat,group=group), 
+  geom_polygon(data = OSMP.df[OSMP.df$PUBLICACCE=="y", ], aes(x = long, y = lat,group=group), 
                fill = "brown", alpha = 0.4) +
-  geom_polygon(data = OSMP.df.n, aes(x = long, y = lat,group=group), 
-               fill = "black") +
-  geom_density2d(data = trees.dbf, aes(x = Longitude, y = Latitude), 
-                 color = "darkgreen") +
+  geom_polygon(data = OSMP.df[OSMP.df$PUBLICACCE!="y", ], aes(x = long, y = lat,group=group), 
+               fill = "darkgrey") +
+  geom_path(data = trails.df, aes(x = long, y = lat,group=group), 
+               color = "black") +
   ylab("Latitude") +
   xlab("Longitude") +
-  ggtitle("Tree Density within the City Limits") +
+  xlim(bbox[1], bbox[3]) +
+  ggtitle("Open Space: Public Access and Trails") +
   theme(panel.grid.minor=element_blank(),
            panel.grid.major=element_blank()) +
   theme_bw()
+rm(trails.df)
+```
+
+```{r FlatIrons, echo=FALSE}
+OSMP.df.y.WTSA <- OSMP.df[OSMP.df$PUBLICACCE=="y" & OSMP.df$TSA=="WTSA", ] 
+rm(OSMP.df)
+
+trails.WTSA <- trails.shp[!is.na(over(trails.shp, OSMP.shp[OSMP.shp$TSA=="WTSA" & 
+                                                          is.na(OSMP.shp$TSA)==FALSE & 
+                                                          OSMP.shp$PUBLICACCE=="y",]))[, 1], ]
+# Open Space and Mountain Parks
+trails.WTSA@data$id <- rownames(trails.WTSA@data)
+trails.points <- fortify(trails.WTSA, region = "id")
+trails.df.WTSA <- join(trails.points, trails.WTSA@data, by = "id"); rm(trails.points)
+
+# Neighborhood pricing
+for (i in 1:length(subcomm.shp@data$SUBCOM)){
+  a <- subcomm.shp[i, ]
+  b <- address.shp[!is.na(over(address.shp, a))[, 1], ]
+  subcomm.shp@data$medianPrice[i] <- median(b$price, na.rm = TRUE)
+  subcomm.shp@data$meanPrice[i] <- mean(b$price, na.rm = TRUE)
+  subcomm.shp@data$maxPrice[i] <- max(b$price, na.rm = TRUE)
+  subcomm.shp@data$numUnits[i] <- dim(b)[1]
+  subcomm.shp@data$percUnder500k[i] <- dim(b@data[b@data$price<500001 & is.na(b@data$price)==FALSE,])[1]/dim(b@data[is.na(b@data$price)==FALSE,])[1]
+  subcomm.shp@data$numAvail[i] <- subcomm.shp@data$numUnits[i]*subcomm.shp@data$percUnder500k[i] 
+  rm(a, b)
+}
+
+# Neighborhoods in Boulder
+subcomm.shp@data$id <- rownames(subcomm.shp@data)
+subcomm.points <- fortify(subcomm.shp, region = "id")
+subcomm.df <- join(subcomm.points, subcomm.shp@data, by = "id"); rm(subcomm.points)
+
+
+ggmap(boulder.map, extent = "normal", darken = 0.2) + 
+  geom_polygon(data = OSMP.df.y.WTSA, aes(x = long, y = lat,group=group), 
+               fill = "brown", alpha = 0.4) +
+  geom_polygon(data = subcomm.df, aes(x = long, y = lat,
+                                      group = group, 
+                                      fill=medianPrice), alpha=0.6) +
+  geom_path(data = trails.df.WTSA, aes(x = long, y = lat,group=group), 
+               color = "black") +
+  ylab("Latitude") +
+  xlab("Longitude") +
+  xlim(bbox[1], bbox[3]) +
+  ggtitle("Open Space: Public Access and Trails in the FlatIrons") +
+  theme(panel.grid.minor=element_blank(),
+           panel.grid.major=element_blank()) +
+  theme_bw()
+
+```
+
+Looking only at the propreties that allow public access, is there any relationship between median home price and closest distance to open space?
+```{r price vs. distance, echo=FALSE}
+UTM13 <- "+init=epsg:26913"
+OSMP.shp.UTM <- OSMP.shp[OSMP.shp$TSA=="WTSA" & is.na(OSMP.shp$TSA)==FALSE & OSMP.shp$PUBLICACCE=="y",]
+OSMP.shp.UTM <- spTransform(OSMP.shp.UTM, CRSobj = UTM13)
+address.shp.UTM <- spTransform(address.shp, CRSobj = UTM13)
+
+# Gives back an answer in meters
+priced.locations <- unique(address.shp.UTM@data$ADDRESSID[is.na(address.shp.UTM@data$price)==FALSE])
+priced.locations <- address.shp.UTM[rownames(address.shp.UTM@data[address.shp.UTM@data$ADDRESSID%in%priced.locations, ]), ]
+
+for (i in 1:dim(priced.locations)[1]){
+  a <- gDistance(priced.locations[i, ], OSMP.shp.UTM, byid = TRUE)
+  address.shp.UTM@data$minDistKM[i]  <- min(a)/1000
+  address.shp.UTM@data$meanDistKM[i]  <- mean(a)/1000
+  address.shp.UTM@data$medianDistKM[i]  <- median(a)/1000
+  address.shp.UTM@data$maxDistKM[i]  <- max(a)/1000
+  rm(a)
+}
+rm(priced.locations)
+
+# Determine median home price every 250 m
+# Make a grid of boulder
+address.shp.UTM.1 <- address.shp.UTM[is.na(address.shp.UTM$OUTOF_CITY)==TRUE, ] # only data points inside the city
+
+lon <- seq(min(address.shp.UTM.1@coords[, 1]),
+           max(address.shp.UTM.1@coords[, 1]),500)
+lat <- seq(min(address.shp.UTM.1@coords[, 2]),
+           max(address.shp.UTM.1@coords[, 2]),500)
+size <- length(lon)*length(lat) # size of the df
+grid <- data.frame(lat=rep(lat,length(lon)),
+                   lon=sort(rep(lon,length(lat))),
+                   medianPrice=rep(NA,size),
+                   meanDistKM=rep(NA,size),
+                   row.names = 1:size)
+
+# Filling the grid with ant data
+for (i in 1:size){
+  as.data.frame(address.shp.UTM.1@coords) %>% 
+    filter(coords.x2>(grid$lat[i]-250),
+           coords.x2<(grid$lat[i]+250),
+           coords.x1>(grid$lon[i]-250),
+           coords.x1<(grid$lon[i]+250)) -> locale
+  if (dim(locale)[1]>0){
+  locale <- address.shp.UTM.1@data[as.numeric(rownames(locale)), ]
+  grid$medianPrice[i] <- median(locale$price, na.rm = TRUE)
+  grid$meanDistKM[i] <- mean(locale$meanDistKM, na.rm = TRUE)
+  }
+  rm(locale)
+}
+grid <- grid[is.na(grid$medianPrice)==FALSE, ]
+rm(lat, lon, size)
+
+# A look at the relationship between price and location
+plot(grid$meanDistKM,grid$medianPrice)
+summary(lm(grid$medianPrice~grid$meanDistKM))
+
+# Adding a regression line
+# mod <- glm(grid$meanDistKM~grid$meanDistKM,family = poisson)
+# lines(grid$meanDistKM,as.numeric(mod$fitted.values),lwd=4, col="red")
 
 ```
